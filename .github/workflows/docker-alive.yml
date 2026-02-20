@@ -1,46 +1,31 @@
-name: Docker Hub Keep Alive
+import fetch from "node-fetch";
 
-on:
-  schedule:
-    - cron: "0 3 1 */2 *"  # every 2 months, 3:00 UTC
-  workflow_dispatch:
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
-jobs:
-  push:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+const REPO = process.env.GITHUB_REPOSITORY; // chainfyre/docker-alive
+const RUN_ID = process.env.GITHUB_RUN_ID;
+const RUN_URL = `https://github.com/${REPO}/actions/runs/${RUN_ID}`;
 
-      - name: Pull base image
-        run: docker pull hello-world:latest
+if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
+  console.error("Missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID");
+  process.exit(1);
+}
 
-      - name: Tag and push
-        run: |
-          TAG=$(date +%Y-%m-%d)
-          USER="${{ secrets.DOCKERHUB_USERNAME }}"
-          docker tag hello-world:latest $USER/hello-world:$TAG
-          docker push $USER/hello-world:$TAG
+const message =
+  `[docker-keepalive][manual] Success. Repo: ${REPO}\n` +
+  `${RUN_URL}`;
 
-      # SUCCESS (includes whether it was manual or scheduled)
-      - name: Notify Telegram on success
-        if: success()
-        run: |
-          MODE="schedule"
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then MODE="manual"; fi
-          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
-            -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
-            -d "text=✅ [docker-keepalive][$MODE] Success. Repo: ${{ github.repository }} | Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
 
-      # FAILURE (includes whether it was manual or scheduled)
-      - name: Notify Telegram on failure
-        if: failure()
-        run: |
-          MODE="schedule"
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then MODE="manual"; fi
-          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
-            -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
-            -d "text=❌ [docker-keepalive][$MODE] FAILED. Repo: ${{ github.repository }} | Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+await fetch(url, {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    chat_id: TELEGRAM_CHAT_ID,
+    text: message,
+    disable_web_page_preview: true, // important
+  }),
+});
+
+console.log("Telegram notification sent");
